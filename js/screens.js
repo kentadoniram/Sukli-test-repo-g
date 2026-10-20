@@ -705,7 +705,7 @@ function settingsGrouped(html) {
 
 const rollingNow = (fallback) => { const r = rollingSummary(get()); return r.current ? r.current.avg : fallback; };
 function rollingCard(p) {
-  const r = rollingSummary(get()), mm = (m) => monthLabel(m).split(' ')[0];
+  const r = rollingSummary(get()), mm = (m) => monthLabel(m).split(' ')[0].slice(0, 3);
   if (!r.current) return '';
   if (!r.enough) return `<p class="hint">Per day uses the last 7 complete days (zero days included). A 12-month history appears after about two weeks of entries. This month so far: ${R(p.dailyAvg)} a day.</p>`;
   const W = 320, H = 110, v = r.series.map((x) => x.avg), top = Math.max(...v, r.hi) * 1.08 || 1, X = (i) => (i / (v.length - 1)) * W, Y = (a) => H - 6 - (a / top) * (H - 14);
