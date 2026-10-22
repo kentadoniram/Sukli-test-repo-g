@@ -1,3 +1,4 @@
+import { parseRoute } from './route.js';
 // One shop, many spellings: "STARBUCKS TOKYO", "スターバックス" and "Starbucks 渋谷" become one merchant.
 // Known chains are matched by name in English or Japanese; everything else drops branch words, digits and place names.
 const CHAINS = [
@@ -38,6 +39,7 @@ export function similarNames(db, name, limit = 2) {
   const toks = n.split(' '), out = [];
   for (const [k, e] of known) {
     if (k === n || isApart(n, k) || isRelated(n, k) || merchantKey(n) === merchantKey(k)) continue;
+    if (parseRoute(n) && parseRoute(k)) continue;                                      // two trips are decided by their stops, not asked about
     const kt = k.split(' '), same1 = kt[0] === toks[0] && toks[0].length >= 3;
     const extends1 = n.startsWith(k + ' ') || k.startsWith(n + ' ');
     if (!(same1 && (toks.length > 1 || kt.length > 1)) && !extends1) continue;
@@ -54,7 +56,7 @@ export function similarPairs(db, max = 12) {
   for (const a of keys) for (const b of keys) {
     if (a >= b) continue; const at = a.split(' '), bt = b.split(' ');
     if (!(at[0] === bt[0] && at[0].length >= 3 && (at.length > 1 || bt.length > 1))) continue;
-    if (isApart(a, b) || isRelated(a, b) || merchantKey(a) === merchantKey(b) || seen.has(a + b)) continue;
+    if (isApart(a, b) || isRelated(a, b) || merchantKey(a) === merchantKey(b) || seen.has(a + b) || (parseRoute(a) && parseRoute(b))) continue;
     seen.add(a + b); out.push({ a, b, score: names.get(a) + names.get(b) });
   }
   return out.sort((x, y) => y.score - x.score).slice(0, max);

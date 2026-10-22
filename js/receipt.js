@@ -10,7 +10,9 @@ const CJK = '\\p{sc=Han}\\p{sc=Hiragana}\\p{sc=Katakana}ー';
 const GAP = new RegExp(`(?<=[${CJK}])\\s+(?=[${CJK}])|(?<=\\d)\\s+(?=[${CJK}])`, 'gu');
 // OCR puts spaces between Japanese characters ("ライ フ 塚越 店") and reads ¥ as a backslash: tidy both
 const NK = (s) => String(s || '').normalize('NFKC').replace(/[￥円]/g, '¥').replace(/\\(?=\s?\d)/g, '¥').replace(GAP, '')
-  .replace(/(?<=[\d¥])[OoQD](?=[\d,.\s¥軽※*外内]|$)/g, '0').replace(/(?<=¥)[OoQ](?=\d)/g, '0').replace(/(?<=\d)[lI|](?=\d|\s|$)/g, '1');
+  .replace(/(?<=[\d¥])[OoQD](?=[\d,.\s¥軽※*外内]|$)/g, '0').replace(/(?<=¥)[OoQ](?=\d)/g, '0').replace(/(?<=\d)[lI|](?=\d|\s|$)/g, '1')
+    .replace(/(?<=\d)[,，。､]\s?(?=\d{3}(?!\d))/g, ',')                                  // "¥1, 021" and "1。021" are 1,021 (the reader leaves a gap or a stop where the comma is)
+.replace(/(?<=^|[\s*・.:])[yYvV](?=\d{2,5}(?:\D|$))/g, '¥').replace(/(?<=¥)[Il|](?=\d)/g, '1');   // ¥ read as y, Y or v; ¥I08 is ¥108
 // OCR often adds a few junk characters after the price ("¥299 【", "¥754 F ーー"): drop them when nothing numeric follows
 const trimTail = (t) => { const re = /(¥\s?-?\d[\d,]*|-?\d[\d,]*)\s*[軽※*外内E]?/g; let last = null, m; while ((m = re.exec(t))) last = m; if (!last) return t; const end = last.index + last[0].length, tail = t.slice(end); return tail && tail.length <= 14 && !/\d/.test(tail) ? t.slice(0, end).trim() : t; };
 const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
@@ -25,7 +27,32 @@ export const SHOPS = [
   ['Don Quijote', /ドン・?キホーテ|ドンキ/], ['Daiso', /ダイソー|daiso/i], ['Matsumoto Kiyoshi', /マツモトキヨシ|マツキヨ/], ['Uniqlo', /ユニクロ|uniqlo/i],
   ['SM Supermarket', /\bSM (supermarket|hypermarket)/i], ['Puregold', /puregold/i], ['Jollibee', /jollibee/i], ["McDonald's", /mcdonald|マクドナルド/i], ['Starbucks', /starbucks|スターバックス/i],
 ];
-const SKIP_ITEM = /小計|合計|総合計|お買上|お預|おあずかり|お釣|おつり|釣銭|税|対象|計|支払|残高|カード|交通|PayPay|ポイント|現金|クレジット|カード|電話|TEL|登録番号|レジ|担当|責任者|領収|点数|ご利用|ありがとう|ご来店|変更|交換|返品|レシート|No\.?|subtotal|total|change|cash|tax|vat/i;
+// not the name itself but something only that chain prints
+export const SHOP_CUES = [
+  ['LIFE', /la\s?cu\s?ca|ラ\s?ク\s?カ|スマイルライフ/i], ['AEON', /\bWAON\b|ワオン|トップバリュ|TOPVALU/i], ['FamilyMart', /ファミペイ|ファミマ|famima/i],
+  ['Maibasket', /まいばす/], ['Seiyu', /みなさまのお墨付き/],
+];
+
+// OCR swaps look-alike characters (輸→軸, 白→哲, バ→パ). A word from a list of everyday grocery words that is one look-alike character away is put right.
+const LOOK = ['輸軸輪転', '白哲百自臼', 'バパハ', 'ベペヘ', 'ビピヒ', 'ブプフ', 'ボポホ', 'ドト', 'カ力', 'トト卜', 'ロ口', 'タ夕', 'エ工', 'ニ二', '豆立', '乳孔', '鶏鳥', '卵卯'];
+const SAME = (a, b) => LOOK.some((g) => g.includes(a) && g.includes(b));
+const WORDS = ['バナナ', '白たまご', 'たまご', '輸入牛', '輸入', '国産', '牛乳', '食パン', '豆腐', '納豆', '豚バラ', '豚こま', '鶏もも', '鶏むね', 'ヨーグルト', 'チーズ', 'バター', 'キャベツ', 'にんじん', '玉ねぎ', 'じゃがいも', 'トマト', 'きゅうり', 'ほうれん草', 'もやし', 'りんご', 'みかん', 'いちご', 'ぶどう', 'レタス', 'ブロッコリー', 'しいたけ', '食卓', '毎日の', 'カット', 'ステーキ', 'ソーセージ', 'ウインナー', 'ハム', 'ベーコン', 'ジュース', '麦茶', '緑茶', '豆乳', 'ティッシュ', '洗剤', 'レジ袋', '味噌', '醤油', '砂糖', 'マヨネーズ', 'ケチャップ', 'カレー', 'ラーメン', 'うどん', 'パスタ', 'おにぎり', '弁当', 'サラダ', '刺身', 'ヨーグルト', 'アイス', 'チョコ', 'スナック', 'ビール', 'ミネラルウォーター', '食パン', 'ロースハム', 'ささみ', 'ひき肉', 'ベビー', 'ペットボトル'];
+export function repairName(name) {
+  let out = String(name || '');
+  for (const w of WORDS) {
+    const n = w.length; if (n < 2 || out.length < n) continue;
+    for (let i = 0; i + n <= out.length; i++) {
+      const seg = out.slice(i, i + n); if (seg === w) continue;
+      let bad = -1, many = false; for (let k = 0; k < n; k++) if (seg[k] !== w[k]) { if (bad >= 0) { many = true; break; } bad = k; }
+      if (many || bad < 0 || !SAME(seg[bad], w[bad])) continue;
+      if (n < 3 && !/\p{sc=Han}/u.test(w[bad])) continue;                 // two-letter words only when the odd character is a kanji
+      out = out.slice(0, i) + w + out.slice(i + n);
+    }
+  }
+  out = out.replace(/^[ァ-ヶA-Za-z]{1,3}(?=(?:レジ袋|バナナ)(?:[SMLＳＭＬ])?$)/, '');                    // a few stray letters (the logo or the ◇ mark) in front of a plain word
+  return out.replace(/(\d)\s+(\d)(?=個)/, '$1$2').replace(/(\d)\s*[Oo0]\s*[FEf]\s*$/, '$10個');                 // "10個" read as "1 OF"
+}
+const SKIP_ITEM = /小計|合計|総合計|お買上|お預|おあずかり|お釣|おつり|釣銭|税|対象|計|支払|残高|カード|交通|PayPay|ポイント|現金|クレジット|カード|電話|TEL|登録番号|レジ(?!袋)|担当|責任者|領収|点数|ご利用|ありがとう|ご来店|変更|交換|返品|レシート|No\.?|subtotal|total|change|cash|tax|vat/i;
 const TOTAL_KEY = /合[\s。.、]*計|お買上げ?計|総合計|ご請求|お支払い?金額|お会計|total|amount due/i;
 const NOT_TOTAL = /小計|内税|外税|消費税|対象|お預|お釣|釣|ポイント|sub ?total|change|tax|vat/i;
 const PRICE_END = /(?:^|[\s:*])¥?\s*(-?\s?\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|-?\s?\d+(?:\.\d{1,2})?)\s*(軽|※|\*|外|内|[A-Z])?\s*$/;
@@ -73,6 +100,11 @@ export function findMerchant(lines, known = []) {
   }
   // a name already in your history that appears in the first lines
   for (const [i, l] of head.entries()) { const t = NK(l.text).toLowerCase(); for (const k of known) if (k.length >= 4 && t.includes(k.toLowerCase())) return { value: k, branch: '', conf: 0.75, line: i, how: 'in your history' }; }
+  // words that only one chain prints (its point card, its own brand), found anywhere: the logo is a picture, but "LaCuCa" says LIFE
+  for (const [i, l] of lines.entries()) for (const [name, re] of SHOP_CUES) if (re.test(NK(l.text))) {
+    let branch = ''; for (const h of head) { const bm = NK(h.text).replace(/[^\p{L}\p{N} ]/gu, '').match(/[\p{sc=Han}ー]{2,8}店/u); if (bm) { branch = bm[0].replace(/上店$/, '店'); break; } }
+    return { value: name, branch, conf: 0.62, line: i, how: 'brand seen on a line' };
+  }
   // the shop name usually sits right above its address
   for (const [i, l] of head.entries()) {
     if (i === 0 || !/[都道府県].*[市区町村郡]|〒/.test(NK(l.text))) continue;
@@ -121,12 +153,13 @@ function priceOf(t) {
 }
 export function findItems(lines) {
   const items = []; let tax = 0, taxIncluded = false;
+  const jp = lines.some((l) => /[\p{sc=Hiragana}\p{sc=Katakana}]/u.test(l.text));
   for (const [i, l] of lines.entries()) {
-    const t = trimTail(NK(l.text).trim().replace(/([¥￥])\s?([0-9IlOo|S,]{1,7})/, (_, y, d) => y + d.replace(/[Il|]/g, '1').replace(/[Oo]/g, '0').replace(/S/g, '5'))); if (!t) continue;   // "¥I0" is ¥10
-    if (/外税|外\s?\d{1,2}\s?%|消費税|\btax\b|\bvat\b/i.test(t)) {
-      const all = amountsIn(t), a = all[all.length - 1]; if (/内|うち/.test(t)) taxIncluded = true;
+    const t = trimTail(NK(l.text).trim()); if (!t) continue;
+    if (/外税|外\s?\d{1,3}\s?%|消費税|\btax\b|\bvat\b/i.test(t)) {
+      const all = amountsIn(t.replace(/\d{1,3}\s?%/g, ' ')), a = all[all.length - 1]; if (/内|うち/.test(t)) taxIncluded = true;   // "外10% 対象 ¥5": the 10 is a rate, not an amount
       if (a && /対象/.test(t) && /外/.test(t) && all.length >= 2 && a.v < all[all.length - 2].v) { tax += a.v; continue; }   // "外税 8%対象 356 28": base and tax on one line
-      if (a && /外税|外\s?\d{1,2}\s?%|\btax\b|\bvat\b/i.test(t) && !/内|うち|対象/.test(t)) tax += a.v;     // tax printed on top of the item prices
+      if (a && /外税|外\s?\d{1,3}\s?%|\btax\b|\bvat\b/i.test(t) && !/内|うち|対象/.test(t)) tax += a.v;     // tax printed on top of the item prices
       continue;
     }
     const q = t.match(/^[@＠]?\s?(\d{1,3})\s*[コ個点本]\s*[x×＊*@]\s*(?:単|@)?\s*¥?(\d{1,5})\s*$/) || t.match(/@\s?\d+\s*[x×]\s*(\d{1,2})\s*[点個コ本]/);
@@ -134,7 +167,8 @@ export function findItems(lines) {
     if (/20\d{2}[^\d\n]{1,2}\d{1,2}[^\d\n]{1,2}\d{1,2}|\d{1,2}\s*[:：]\s*\d{2}/.test(t) || NOT_AMOUNT.test(t)) continue;   // date, time, phone, card and register lines
     if (SKIP_ITEM.test(t) && !/値引|割引|クーポン/.test(t)) continue;
     const pr = priceOf(t); if (!pr || !pr.v) continue;
-    const name = t.slice(0, pr.at).replace(/[¥\s.:*＊]+$/, '').replace(/^[^\p{L}\p{N}-]+/u, '').replace(/^[\d\s]*(?=\D)/, '').replace(/^[*＊\s]+/, '').trim();
+    let name = repairName(t.slice(0, pr.at).replace(/[¥\s.:*＊]+$/, '').replace(/^[^\p{L}\p{N}-]+/u, '').replace(/^[\d\s]*(?=\D)/, '').replace(/^[*＊\s]+/, '').trim());
+    if (jp && pr.strong && pr.v >= 1 && pr.v <= 10 && !/値引|割引|クーポン|引/.test(name) && !/[\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}]/u.test(name)) name = 'レジ袋';   // a few yen and a name that is only noise: the carrier bag
     const disc = /値引|割引|クーポン|引|discount/i.test(name) && !/ー$/.test(name);
     if (!pr.strong && !(goodName(name) && pr.v >= 10 && name.replace(/[^\p{L}]/gu, '').length >= (/[\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}]/u.test(name) ? 1 : 3))) continue;   // an unmarked number is only a price when the name is clearly a word
     const pm = disc ? name.match(/(\d{1,2})\s?%/) : null, ok = goodName(name);
@@ -143,18 +177,25 @@ export function findItems(lines) {
   return { items, tax, taxIncluded };
 }
 
-const NOT_AMOUNT = /残高|カード番号|\*{3,}|登録番号|電話|TEL|レジ|セルフ|\d{2,4}-\d{2,4}-\d{3,4}/i;
+const NOT_AMOUNT = /残高|カード番号|\*{3,}|登録番号|電話|TEL|レジ(?!袋)|セルフ|\d{2,4}-\d{2,4}-\d{3,4}/i;
 const PAY_LINE = /支払|PayPay|ペイ|交通系|nanaco|WAON|Suica|PASMO|QUICPay|クレジット|電子マネー/i;
+const PAYTOTAL = /支\s*払\s*(合\s*[。.、]*\s*計|総額|金額合計)|お支払\s*合計/;
 export function findTotal(lines, items) {
   const cand = [], T = (l) => trimTail(NK(l.text));
+  for (const [i, l] of lines.entries()) {                                   // 0. 支払合計 (total payment): the main reference when it can be read
+    const t = T(l); if (!PAYTOTAL.test(t) || NOT_AMOUNT.test(t)) continue;
+    let a = amountsIn(t).filter((x) => !/%|点|個/.test(t.slice(x.at + x.len, x.at + x.len + 2))).pop();
+    if (!a) { const n = amountsIn((lines[i + 1] || {}).text || '').pop(); if (n) a = n; }
+    if (a && a.v > 0 && a.v < 5e5) cand.push({ value: a.v, conf: clamp(0.78 + 0.2 * ((l.conf ?? 75) / 100)), line: i, how: '支払合計 (total payment)', src: 'paytotal' });
+  }
   for (const [i, l] of lines.entries()) {                                   // 1. a line labelled total
-    const t = T(l); if (!TOTAL_KEY.test(t) || NOT_TOTAL.test(t.replace(/合計|total/gi, '')) || NOT_AMOUNT.test(t)) continue;
+    const t = T(l); if (PAYTOTAL.test(t) || !TOTAL_KEY.test(t) || NOT_TOTAL.test(t.replace(/合計|total/gi, '')) || NOT_AMOUNT.test(t)) continue;
     let a = amountsIn(t).filter((x) => !/%|点|個/.test(t.slice(x.at + x.len, x.at + x.len + 2))).pop();
     if (!a) { const n = amountsIn((lines[i + 1] || {}).text || '').pop(); if (n) a = n; }
     if (a && a.v > 0 && a.v < 5e5) cand.push({ value: a.v, conf: clamp(0.6 + 0.35 * ((l.conf ?? 75) / 100)), line: i, how: 'labelled total', src: 'label' });
   }
   for (const [i, l] of lines.entries()) {                                   // 2. what was paid by card, IC card or app
-    const t = T(l); if (!PAY_LINE.test(t) || NOT_AMOUNT.test(t) || /お預|お釣|ポイント/.test(t)) continue;
+    const t = T(l); if (!PAY_LINE.test(t) || PAYTOTAL.test(t) || NOT_AMOUNT.test(t) || /お預|お釣|ポイント/.test(t)) continue;
     const a = amountsIn(t).pop(); if (a && a.v >= 10 && a.v < 5e5) cand.push({ value: a.v, conf: clamp(0.55 + 0.3 * ((l.conf ?? 75) / 100)), line: i, how: 'payment line', src: 'pay' });
   }
   let base = 0, taxSum = 0, seen = false;                                    // 3. taxable amount + tax, per rate
@@ -165,21 +206,14 @@ export function findTotal(lines, items) {
     seen = true; base += b.v; if (/外税/.test(t) && next && next.v < b.v) taxSum += next.v;
   }
   if (seen && base > 0) cand.push({ value: base + taxSum, conf: 0.6, line: -1, how: 'taxable amount plus tax', src: 'tax' });
-  for (const [i, l] of lines.entries()) {                                   // 支払合計: the amount actually paid, the primary reference
-    const t = T(l); if (!/支払合計|お支払合計|お支払い合計|お支払総額|ご請求(額|合計)?/.test(t) || NOT_AMOUNT.test(t)) continue;
-    const a = amountsIn(t).pop() || amountsIn(T(lines[i + 1] || { text: '' })).pop();
-    if (a && a.v >= 10 && a.v < 5e5) cand.push({ value: a.v, conf: clamp(0.8 + 0.18 * ((l.conf ?? 75) / 100)), line: i, how: '支払合計 (total payment)', src: 'paytotal' });
-  }
-  let sub = 0;
-  for (const l of lines) { const t = T(l); if (/小計|対象(額|金額)?/.test(t) && !NOT_AMOUNT.test(t)) { const a = amountsIn(t).pop(); if (a && a.v > sub && a.v < 5e5) sub = a.v; } }
-  for (const l of lines) { const m = T(l).match(/外\s?(8|10)\s?[%％]?/); if (m && sub > 0) { cand.push({ value: sub + Math.floor(sub * +m[1] / 100), conf: 0.62, line: -1, how: `subtotal plus ${m[1]}% tax`, src: 'tax2' }); break; } }
-  if (sub > 0) for (let i = cand.length - 1; i >= 0; i--) if (cand[i].value < sub * 0.95) cand.splice(i, 1);   // "54" cannot be the total of a 699 subtotal: a digit was lost
+  const ext = findItems(lines).tax;                                          // 4. subtotal plus tax printed on top of it
+  if (ext > 0) for (const l of lines) { const t = T(l); if (/小計|sub ?total/i.test(t)) { const a = amountsIn(t).pop(); if (a && a.v > 0 && a.v + ext < 5e5) cand.push({ value: a.v + ext, conf: 0.58, line: -1, how: 'subtotal plus tax', src: 'sub' }); } }
   if (cand.length) {
     const sum = items.reduce((s, x) => s + x.amt, 0);
-    for (const c of cand) { c.agree = new Set(cand.filter((o) => Math.abs(o.value - c.value) <= 1).map((o) => o.src)).size; if (items.length && Math.abs(c.value - sum) <= 1) c.agree++; }
-    cand.sort((a, b) => (b.src === 'paytotal') - (a.src === 'paytotal') || b.agree - a.agree || b.conf - a.conf);
+    for (const c of cand) { c.agree = new Set(cand.filter((o) => Math.abs(o.value - c.value) <= 1).map((o) => o.src)).size; if (items.length && (Math.abs(c.value - sum) <= 1 || (ext && Math.abs(c.value - sum - ext) <= 1))) c.agree++; if (c.src === 'paytotal') c.agree++; }
+    cand.sort((a, b) => b.agree - a.agree || b.conf - a.conf);
     const pick = cand[0], how = pick.agree > 1 ? `${pick.agree} readings agree` : pick.how;
-    return { value: pick.value, conf: clamp(pick.conf + 0.15 * (pick.agree - 1)), line: pick.line, how, alternatives: [...new Set(cand.filter((c) => Math.abs(c.value - pick.value) > 1).map((c) => c.value))] };
+    return { value: pick.value, src: pick.src, conf: clamp(pick.conf + 0.15 * (pick.agree - 1)), line: pick.line, how, alternatives: [...new Set(cand.filter((c) => Math.abs(c.value - pick.value) > 1).map((c) => c.value))] };
   }
   // no label found: the biggest amount that is not cash handed over, change, tax or an ID number (amounts with ¥ first)
   let big = null;
@@ -201,14 +235,22 @@ function findTargets(lines, total, tax) {
   return [...new Set(out)];
 }
 
-export function parseReceipt(lines, { known = [], today = new Date() } = {}) {
+export function parseReceipt(lines, { known = [], today = new Date(), settle: doSettle = true } = {}) {
   lines = lines.map((l) => ({ text: String(l.text || '').trim(), conf: l.conf })).filter((l) => l.text);
   const date = findDate(lines, today), merchant = findMerchant(lines, known);
   // items stop at the first subtotal/total line: what comes after is payment, change and tax
   const stop = lines.findIndex((l) => /小計|合計|sub ?total|^total/i.test(NK(l.text)));
-  const { items } = findItems(stop > 2 ? lines.slice(0, stop + 1) : lines), { tax, taxIncluded } = findItems(lines);
-  const total = findTotal(lines, items);
-  const subs = findTargets(lines, total, tax), targets = [...subs, ...(total ? [total.value, ...(tax ? [total.value - tax] : [])] : [])];
+  const { items } = findItems(stop > 2 ? lines.slice(0, stop + 1) : lines), t0 = findItems(lines), taxIncluded = t0.taxIncluded;
+  let tax = t0.tax, total = findTotal(lines, items);
+  // the tax line's label is often unreadable (\"58%  ¥75\"), but the tax is still printed: when items plus one printed amount that is 3-10% of them make the total, that amount is the tax
+  if (total && items.length && !taxIncluded) {
+    const s0 = items.reduce((a, x) => a + x.amt, 0), diff = total.value - s0, onItem = new Set(items.map((x) => x.line));
+    if (diff > 0 && Math.abs(s0 + tax - total.value) > 1 && diff >= s0 * 0.03 - 1 && diff <= s0 * 0.105 + 1 && lines.some((l, i) => !onItem.has(i) && /[%税外内]/.test(NK(l.text)) && amountsIn(trimTail(NK(l.text)).replace(/\d{1,3}\s?%/g, ' ')).some((a) => a.v === diff))) tax = diff;   // on a line that talks about tax or a rate
+  }
+  const subs = findTargets(lines, total, tax);
+  // the "total" that was found is only the subtotal while a tax line sits on top of it: the amount paid is subtotal + tax
+  if (total && tax > 0 && !taxIncluded && total.src !== 'paytotal' && subs.some((x) => near(x, total.value))) total = { ...total, value: total.value + tax, how: 'subtotal plus tax', conf: Math.min(total.conf, 0.7) };
+  const targets = [...subs, ...(total ? [total.value, ...(tax ? [total.value - tax] : [])] : [])];
   const ids = findIds(lines);
   const sum = items.reduce((s, x) => s + x.amt, 0);
   let check = { ok: null, sum, diff: null };
@@ -234,23 +276,71 @@ export function parseReceipt(lines, { known = [], today = new Date() } = {}) {
       total.conf = clamp(total.conf + 0.2);
     }
   }
-  if (total && items.length && check.ok === false && !check.repaired) {           // "¥I0" for ¥190: the rest of the list and the subtotal say what it must be
-    const bad = items.map((x, i) => (x.amt > 0 && x.amt < 30 ? i : -1)).filter((i) => i >= 0);
-    if (bad.length === 1) { const rest = items.reduce((s2, x, i) => s2 + (i === bad[0] ? 0 : x.amt), 0), need = targets.map((v) => v - rest).find((v) => v >= 30 && v <= 50000);
-      if (need) { const it = items[bad[0]]; it.was = it.amt; it.amt = need; it.conf = Math.min(it.conf, 0.55); it.fromSubtotal = true; check = { ok: true, sum: rest + need, diff: 0, tax, repaired: true }; total.conf = clamp(total.conf + 0.1); } }
-  }
   const rawItems = items.map((x) => ({ ...x }));
+  // item lines (marked with * or ・) whose price could not be read at all: if exactly one is missing, the subtotal tells its price
+  const stopAt = stop > 2 ? stop : lines.length, used = new Set(items.map((x) => x.line));
+  const ghosts = lines.filter((l, i) => i < stopAt && !used.has(i) && /^[*＊・]\s*\S{2,}/.test(NK(l.text).trim()) && !SKIP_ITEM.test(NK(l.text)) && !/値引|割引|クーポン/.test(NK(l.text)) && !/\d{2,}/.test(NK(l.text).replace(/\d{4}-\d+|[A-Z]\d{6,}/g, ''))).map((l) => l.text);
   if (total && items.length && check.ok === false && total.conf >= 0.7 && !check.repaired) { items.length = 0; check = { ...check, itemsUnreadable: true }; }   // better one correct line than several wrong ones
   if (total && !items.length) items.push({ name: (merchant && merchant.value) || 'Receipt', amt: total.value, reduced: false, conf: 0.4, line: -1, whole: true });
-  const st = settle(items, total, tax, lines);
-  return { merchant, date, total, items: st.items, rawItems, tax, taxIncluded, taxInfo: st.taxInfo, discounts: st.discounts, check, targets, subs, ids, lineCount: lines.length };
+  const res = { merchant, date, total, items, rawItems, tax, taxIncluded, check, targets, subs, ids, ghosts, lineCount: lines.length };
+  return doSettle ? settle(res) : res;
+}
+
+// split an amount over weights so the parts add up exactly (largest remainder); works in yen or in centavos
+function apportion(total, w) {
+  const k = Number.isInteger(total) ? 1 : 100, sg = total < 0 ? -1 : 1, T = Math.round(Math.abs(total) * k), W = w.reduce((a, b) => a + Math.max(0, b), 0);
+  if (!W || !T) return w.map(() => 0);
+  const raw = w.map((x) => (T * Math.max(0, x)) / W), out = raw.map(Math.floor);
+  let left = T - out.reduce((a, b) => a + b, 0);
+  raw.map((x, i) => [x - Math.floor(x), i]).sort((a, b) => b[0] - a[0] || a[1] - b[1]).slice(0, left).forEach(([, i]) => { out[i]++; });
+  return out.map((x) => (sg * x) / k);
+}
+// What was really paid for each item. A discount line belongs to the item above it (a store-wide one is spread over all items),
+// and tax printed on top of the prices is shared out by rate (軽 = 8%, otherwise 10%) so the items add up to the amount paid.
+export function settle(r) {
+  const raw = (r.items || []).filter((x) => !x.whole);
+  if (!raw.length || (r.items || []).some((x) => x.whole)) return r;
+  const rows = [], wide = [];
+  for (const it of raw) {
+    if (it.amt < 0) {
+      const prev = rows[rows.length - 1], store = /全体|お会計|店内|合計|小計|ポイント|point|total/i.test(it.raw || it.name || '');
+      if (prev && !store) { prev.disc += it.amt; prev.discNote = (prev.discNote ? prev.discNote + ', ' : '') + ((it.raw || '').replace(/\s+/g, ' ').trim() || 'discount'); continue; }
+      wide.push(it.amt); continue;
+    }
+    rows.push({ ...it, gross: it.amt, disc: 0, taxShare: 0 });
+  }
+  if (!rows.length) return r;
+  const wd = wide.reduce((a, b) => a + b, 0);
+  if (wd) apportion(wd, rows.map((x) => x.gross)).forEach((v, i) => { rows[i].disc += v; rows[i].discNote = rows[i].discNote || 'store discount'; });
+  const net = rows.map((x) => x.gross + x.disc), sumNet = net.reduce((a, b) => a + b, 0);
+  const T = r.total ? r.total.value : 0, ext = r.taxIncluded ? 0 : r.tax || 0;
+  let tax = 0;
+  if (ext > 0 && (!T || Math.abs(sumNet + ext - T) <= 1)) {                       // tax on top of the prices
+    tax = T ? T - sumNet : ext;
+    apportion(tax, rows.map((x, i) => net[i] * (x.reduced ? 0.08 : 0.1))).forEach((v, i) => { rows[i].taxShare = v; });
+  }
+  else if (T && T > sumNet + 1 && T <= sumNet * 1.1 + 1.5 && T >= sumNet * 1.08 - 1.5) {   // prices before tax and no tax line was read: the gap is 8% / 10% tax
+    tax = T - sumNet;
+    apportion(tax, rows.map((x, i) => net[i] * (x.reduced ? 0.08 : 0.1))).forEach((v, i) => { rows[i].taxShare = v; });
+  }
+  const f2 = (x) => Math.round(x * 100) / 100;
+  for (const [i, x] of rows.entries()) {
+    x.net = net[i]; x.amt = f2(net[i] + x.taxShare);
+    const bits = [`¥${x.gross}`]; if (x.disc) bits.push(`${x.disc < 0 ? '−' : '+'} ¥${Math.abs(x.disc)} ${x.discNote || 'discount'}`); if (x.taxShare) bits.push(`+ ¥${x.taxShare} tax`);
+    x.note = bits.length > 1 ? bits.join(' ') : '';
+  }
+  const final = rows.reduce((a, x) => a + x.amt, 0), gross = rows.reduce((a, x) => a + x.gross, 0);
+  const ok = T ? Math.abs(final - T) <= 1 : null;
+  const check = { ...(r.check || {}), ok: T ? ok : (r.check || {}).ok, sum: f2(final), diff: T ? Math.round(T - final) : null, tax };
+  return { ...r, items: rows, check, settled: { gross, discount: gross - sumNet, net: sumNet, tax, paid: T || final } };
 }
 
 // lines out of a Tesseract result (v5 gives blocks, older gives lines)
 export function linesFromOcr(data) {
-  if (data && Array.isArray(data.lines) && data.lines.length) return data.lines.map((l) => ({ text: l.text, conf: l.confidence }));
+  const yOf = (l) => (l.bbox ? { y: (l.bbox.y0 + l.bbox.y1) / 2, h: l.bbox.y1 - l.bbox.y0 } : {});
+  if (data && Array.isArray(data.lines) && data.lines.length) return data.lines.map((l) => ({ text: l.text, conf: l.confidence, ...yOf(l) }));
   const out = [];
-  for (const b of (data && data.blocks) || []) for (const p of b.paragraphs || []) for (const l of p.lines || []) out.push({ text: l.text, conf: l.confidence });
+  for (const b of (data && data.blocks) || []) for (const p of b.paragraphs || []) for (const l of p.lines || []) out.push({ text: l.text, conf: l.confidence, ...yOf(l) });
   return out.length ? out : String((data && data.text) || '').split('\n').map((t) => ({ text: t, conf: undefined }));
 }
 
@@ -291,8 +381,8 @@ function mergeItems(A0, B0, targets, tax) {
   return { items: rows.map((r) => r.c[0]), ok: false };
 }
 export function parseBoth(a, b, opts = {}) {
-  const pa = parseReceipt(a, opts); if (!b) return pa;
-  const pb = parseReceipt(b, opts), pick = (x, y, f) => { const u = f(x), v = f(y); return !u ? v : !v ? u : (v.conf > u.conf ? v : u); };
+  const pa = parseReceipt(a, { ...opts, settle: false }); if (!b) return settle(pa);
+  const pb = parseReceipt(b, { ...opts, settle: false }), pick = (x, y, f) => { const u = f(x), v = f(y); return !u ? v : !v ? u : (v.conf > u.conf ? v : u); };
   const out = { ...pa };
   out.date = pick(pa, pb, (r) => r.date); out.merchant = pick(pa, pb, (r) => r.merchant);
   if (pa.merchant && pb.merchant && pa.merchant.value === pb.merchant.value) out.merchant = { ...out.merchant, conf: clamp(out.merchant.conf + 0.05) };
@@ -300,7 +390,7 @@ export function parseBoth(a, b, opts = {}) {
   // totals: two readings that agree beat one; a total that fits the other reading's subtotal beats one that does not
   const targets = [...new Set([...pa.subs, ...pb.subs])], taxes = [pa.tax, pb.tax].filter(Boolean);
   const cands = [pa.total, pb.total].filter((t) => t && t.value >= 10);
-  for (const c of cands) { c.support = cands.filter((o) => near(o.value, c.value)).length + (targets.some((t) => near(t, c.value)) ? 1 : 0) + (taxes.some((x) => targets.some((t) => near(t + x, c.value))) ? 1 : 0); }
+  for (const c of cands) { c.support = (c.src === 'paytotal' ? 1 : 0) + cands.filter((o) => near(o.value, c.value)).length + (targets.some((t) => near(t, c.value)) ? 1 : 0) + (taxes.some((x) => targets.some((t) => near(t + x, c.value))) ? 1 : 0); }
   cands.sort((x, y) => y.support - x.support || y.conf - x.conf);
   if (cands[0]) out.total = { ...cands[0], conf: clamp(cands[0].conf + 0.1 * (cands[0].support - 1)), how: cands[0].support > 1 ? 'both readings agree' : cands[0].how };
   else out.total = pa.total || pb.total;
@@ -310,12 +400,24 @@ export function parseBoth(a, b, opts = {}) {
   // items: line up both readings and keep the combination that adds up to the subtotal or total
   const m = mergeItems(pa.rawItems.filter((x) => !x.whole), pb.rawItems.filter((x) => !x.whole), tg, tax);
   out.tax = tax; out.targets = tg;
-  const sum = m.items.reduce((s2, x) => s2 + x.amt, 0);
+  let sum = m.items.reduce((s2, x) => s2 + x.amt, 0);
+  if (!m.ok && m.items.length >= 2) {                                              // one price is wrong or missing in both readings: the subtotal tells what it must be
+    const gaps = [...new Set([...pa.subs, ...pb.subs, ...(tax && T0 ? [T0 - tax] : [])])];
+    const fixes = [];
+    m.items.forEach((it, i) => { if (it.amt > 0 && (!it.name || it.conf < 0.5)) for (const t of gaps) { const v = t - (sum - it.amt); if (v >= 10 && v <= 30000 && v !== it.amt) fixes.push({ i, v }); } });
+    if (fixes.length && new Set(fixes.map((f) => f.i)).size === 1 && new Set(fixes.map((f) => f.v)).size === 1) {
+      const f = fixes[0]; m.items = m.items.map((it, i) => (i === f.i ? { ...it, was: it.amt, amt: f.v, conf: 0.45, implied: true } : it)); m.ok = true; sum += f.v - m.items[f.i].was;
+    } else if (Math.max((pa.ghosts || []).length, (pb.ghosts || []).length) === 1) {          // a line whose price vanished completely
+      const g = gaps.map((t) => t - sum).filter((x) => x >= 10 && x <= 30000);
+      if (new Set(g).size === 1) { m.items = [...m.items, { name: '', raw: (pa.ghosts[0] || pb.ghosts[0] || ''), amt: g[0], reduced: false, conf: 0.45, line: 9999, implied: true }]; m.ok = true; sum += g[0]; }
+    }
+  }
   if (m.ok && out.total) { out.items = m.items; out.check = { ok: true, sum, diff: Math.round(out.total.value - sum), tax, merged: true, dropped: m.dropped }; out.total.conf = clamp(out.total.conf + 0.1); }
   else if (out.total && m.items.length) { out.items = []; out.check = { ok: false, sum, diff: Math.round(out.total.value - sum), tax, itemsUnreadable: true }; }
   else { out.items = pa.items.length ? pa.items : pb.items; out.check = pa.check; }
   if (out.total && !out.items.length) out.items = [{ name: (out.merchant && out.merchant.value) || 'Receipt', amt: out.total.value, reduced: false, conf: 0.4, line: -1, whole: true }];
-  return out;
+  out.rawItems = out.items.map((x) => ({ ...x }));
+  return settle(out);
 }
 
 // kept for older callers
@@ -324,28 +426,14 @@ export function bestLines(a, b, opts = {}) {
   return score(b) > score(a) ? b : a;
 }
 
-// What was really paid for each item: a discount line belongs to the item above it, and tax printed on top of the prices
-// is spread over the items in proportion to what each cost after discount (largest remainder, so the parts add up to the receipt exactly).
-function settle(items, total, tax, lines) {
-  if (!items.length || (items.length === 1 && items[0].whole)) return { items, taxInfo: null, discounts: [] };
-  const out = [], discounts = []; let pending = 0;
-  for (const it of items) {
-    if (it.amt < 0) { discounts.push({ name: it.name || 'Discount', amt: it.amt, pct: it.pct || 0 }); const prev = out[out.length - 1]; if (prev) prev.disc += it.amt; else pending += it.amt; }
-    else out.push({ ...it, disc: 0 });
+// Two photos of one long receipt, top part then next part, overlapping by a few lines: drop the lines that are read twice.
+export function joinLines(A, B, maxOverlap = 18) {
+  if (!A.length) return B.slice(); if (!B.length) return A.slice();
+  const key = (l) => NK(l.text).replace(/[\s¥,.\-*]/g, '').toLowerCase();
+  const same = (x, y) => { const a = key(x), b = key(y); return a.length >= 3 && b.length >= 3 && (a === b || similarity(a, b) >= 0.8); };
+  for (let k = Math.min(maxOverlap, A.length, B.length); k >= 1; k--) {
+    let ok = 0; for (let i = 0; i < k; i++) if (same(A[A.length - k + i], B[i])) ok++;
+    if (ok >= Math.max(1, Math.ceil(k * 0.6)) && (k > 1 || key(B[0]).length >= 6)) return [...A, ...B.slice(k)];
   }
-  if (!out.length) return { items, taxInfo: null, discounts: [] };
-  if (pending) { const base = out.reduce((s, x) => s + x.amt, 0); for (const it of out) it.disc += Math.round(pending * it.amt / base); }   // a store-wide discount printed before the items
-  for (const it of out) it.net = Math.max(0, it.amt + it.disc);
-  const netSum = out.reduce((s, x) => s + x.net, 0), text = lines.map((l) => NK(l.text)).join('\n');
-  const rate = /外\s?10\s?[%％]/.test(text) ? 10 : /外\s?8\s?[%％]?/.test(text) ? 8 : 0;
-  let amount = tax, derived = false;
-  if (!amount && total && netSum > 0) { const d = total.value - netSum; if (d > 0 && d <= netSum * 0.11) { amount = d; derived = true; } }
-  if (!amount && rate && netSum > 0) { amount = Math.floor(netSum * rate / 100); derived = true; }
-  const exclusive = amount > 0 && (!total || Math.abs(netSum + amount - total.value) <= 1);
-  if (exclusive) {
-    const raw = out.map((x) => (x.net / netSum) * amount), base = raw.map(Math.floor); let left = amount - base.reduce((a, b) => a + b, 0);
-    raw.map((v, i) => [v - Math.floor(v), i]).sort((a, b) => b[0] - a[0]).forEach(([, i]) => { if (left > 0) { base[i]++; left--; } });
-    out.forEach((x, i) => { x.tax = base[i]; x.final = x.net + base[i]; });
-  } else out.forEach((x) => { x.tax = 0; x.final = x.net; });
-  return { items: out, discounts, taxInfo: { amount: exclusive ? amount : 0, rate, derived, exclusive, netSum, discountSum: discounts.reduce((s, d) => s + d.amt, 0) } };
+  return [...A, ...B];
 }

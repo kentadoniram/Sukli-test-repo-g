@@ -1,18 +1,47 @@
-## What's new in v14
+## What's new in v12.21: better receipt reading (LIFE ¥1,021 receipt)
 
-- **Home "Per day" is now a rolling 7-day average:** the total of the last 7 complete calendar days (ending yesterday), zero days included, divided by 7. It moves forward one day at a time and does not care which weekday the window starts on. Before, it was month-to-date spending divided by the days elapsed in the calendar month.
-- **Rolling 7-day average, last 12 months** (Home): a line of the rolling average for every day, your usual (median), the middle half of weeks, how far you are from usual now, last 3 months vs before, and a monthly trend only when the evidence is real.
+Studied a real LIFE Kawasaki Tsukagoshi receipt (¥1,021: a bag, a sticker-discounted steak, bananas, eggs, 8% tax on top). The old build read the total as **¥21** and lost every item. Now it reads shop, date, total, tax and all four items, and they add up.
 
-## What's new in v13 (receipts)
+- **Picture:** the first reading now evens out the lighting (shadows, glare, wood-grain table) before stretching contrast; hard black-and-white is the second look. On this photo that was the most accurate image prep of everything tried.
+- **Amounts:** "¥1, 021" and "1。021" (a gap or stop where the comma is) are 1,021. "(外10% 対象 ¥5)" no longer counts the 10 of the rate as money, which made ¥5 of fake tax.
+- **Tax:** when the tax line's label is unreadable ("58% ¥75") but the printed amount fits (items + that amount = total, and it is 3 to 10% of the items), it is taken as the tax.
+- **Shop:** words only one chain prints name it when the logo is a picture: "LaCuCa" is LIFE, WAON / トップバリュ is AEON, ファミペイ is FamilyMart. The branch (川崎塚越店) comes from the header.
+- **Item names:** look-alike characters are put right against a list of everyday grocery words (軸入牛 to 輸入牛, 哲たまご to 白たまご, パナナ to バナナ), "1 OF" or "1 0個" to 10個, and a few-yen line whose name is only noise is the carrier bag. レジ袋 is no longer skipped as a "register" line.
+- **Test:** `tests/receipt-life-test.mjs` with five real OCR readings of this photo.
 
-- **Discounts belong to their item:** a negative line (シール割引 -90) is taken off the item above it, so each item shows what you actually paid for it. A discount printed before any item is spread over the items.
-- **Tax:** tax printed on top of the prices (外8% ¥55) is spread over the items in proportion to what each cost after discount, so the item prices add up to exactly what you paid (754, not 699). If the tax line is unreadable the 8%/10% mark on the receipt is used.
-- **支払合計 (total payment)** is the primary reference for the total. Other readings (合計 line, subtotal plus tax, payment line) only confirm it; a total smaller than the subtotal is rejected.
-- **Each item gets its own category** (your history first, then keyword rules in Japanese and English matched to your category names). Items it cannot place stay unassigned. Discounts and tax are never categories of their own.
+## What's new in v12.20 (merged with v14.3)
+
+v14.3 was compared with this build file by file. Most of it was already here in a more complete form (trips and routes, tax on interest with re-tax, receipt discounts and tax, Home and tab arrangement, rolling 7-day average with daily bars, account page + menu, swap in transfers, keyboard-aware sheets, Back scroll position), so those were kept as they are. One thing was missing and has been added:
+
+- **Analytics, Where the money went: Bars or Pie.** The pie shows each group, category, account, weekday or currency with percent and amount on the right. Tap a slice or a legend row for the entries behind it; small slices are gathered under "Other" and open the same way.
 
 # Sukli (working title)
 
 A private money tracker that runs entirely in the browser. Your data stays on your device, with an optional backup to a hidden folder in your own Google Drive. No server, no subscription, no AI service: the category guesser is a small model that learns from your own entries and runs on the phone.
+
+## What's new in v12
+
+- **Loans (rough first version).** *Loan planner* (menu, and Accounts page): amount, rate, length, upfront fees, late fee. Shows monthly payment, total interest, total repaid, what you actually receive after fees, the real cost, and warnings (home/car interest, heavy cost, late-payment consequences). *Record this loan* asks you to confirm the fees, creates a loan account, moves the money to your account, and saves the fees as a financial loss. Loan account pages show the plan, next due date and an overdue warning, and **Add charge** (interest charge, late fee, penalty, annual fee). Debts no longer have an interest field and never earn interest. Home has a new card, *Money lost to fees and interest* (last 12 months by kind, plus tax taken from interest).
+- **Smart labels:** typing "Loan Payment" or "Credit Card Payment" offers to record it as a transfer to the loan or card; "Credit to cash" and "Loan" offer the loan planner. Nothing switches by itself.
+- **Tax-linked interest:** tap an interest entry to see gross, tax and credited; changing the account's tax rate (there or in the account form) recalculates all its interest entries. **Credit limit history** is kept when a card's limit changes. Accounts can be grouped as **Assets / debts**.
+- Account pages now update straight away after you edit the account (before, the open page stayed stale).
+- **Spending vs expected income** (new Home card, arrangeable in Settings): a ring of your expected monthly income filled by what you spent, split by group, with the % spent, income came in, spent and left. Expected income = the middle of your last 3 months with income (never less than what already came in), or the amount you set with "Set my own". Pies are larger with smaller side text.
+- **Trip labels:** a transport entry saved without From/To is named "Bus Commute" / "Train Commute"; with both stops, "Bus: One Ayala - San Pedro". Trip chains follow the order you entered them, not the clock time, so catching up at night still gives the right starting point.
+- **Home cards and tabs are yours to arrange** (Settings, Tabs and Home cards): reorder or hide every Home card, and choose up to 4 bottom tabs from Home, Entries, Calendar, Accounts, Budget, Cash flow, Outlook and Analytics (the + button stays in the middle). Heavy cards now draw a moment after the top of Home so it appears at once.
+- **Back returns to where you were** (including after opening Next month outlook): each screen remembers its scroll position (`js/app.js`).
+- **Where it went** can be bars or a pie (choice remembered on the device): percentages on the right, tap a slice or a name for the detail. **Daily average** now has a 30-day bar graph of daily spending under it.
+- **Typing bus, MRT, jeep, taxi, Grab, train, ferry...** in the label counts as transport: the transport category is chosen and From / To appears. Blank label becomes "From - To", or your usual trip for that hour.
+- **Select entries** in Entries to delete several at once (recycle bin, with Undo). Transfers are now purple. Calendar shows month totals, heat shading, busiest day, no-spend days and spending by week.
+- **Interest tax:** each account has "% tax on interest" (banks default to 20%); interest is credited after tax, with the gross and tax kept in the entry note. Applies to interest added from now on.
+- **Account page "+"** (bottom right): Expense, Income or Transfer with the account and the usual other account filled in; a swap button in the transfer form flips From and To.
+- **Receipts: tax, discounts, 支払合計.** 支払合計 (total payment) is now the main total when it can be read; other readings only confirm it. If the total found equals the subtotal while a 外税 line sits on top, the amount paid is subtotal + tax. A discount line (引, 割引, シール割引) is attached to the item above it, so each item shows its final price; a store-wide discount is spread over the items. Tax printed on top (or implied by the total) is shared by rate (軽 = 8%, else 10%) so the item prices add up exactly to what you paid. A small line explains: items, minus discounts, plus tax, equals paid.
+- **Receipts: a category for each item** (`js/itemcat.js`). Order: what you chose before for that item, a Japanese and English word list matched to categories you already have (nothing is created), otherwise it follows the receipt's category. Each item has its own category menu; corrections are remembered; the receipt's category becomes the biggest by amount.
+- **Trips** (`js/route.js`). "San Pedro - Ayala One" and "Ayala One - San Pedro" are now a **return trip**: linked (same stops, same usual mode and fare) but never "the same", and trips are never asked Same/Different. "One Ayala" and "Ayala One" are the same stop.
+- **Optional From / To** appears only when the category is public transport. It fills the name ("From - To"), and suggests trips by hour of day: your **home stop** (Settings, Name matching, or worked out from the first and last trip of each day) is where you leave in the morning and return to in the evening, the stop where your last trip today ended is where you are now, and typing a From lists likely destinations with the usual mode. The "Usual" quick picks drop the impossible direction.
+- **Blank labels are filled in.** A transfer left unnamed is saved as "From - To" (the two account names; the name box shows it as a hint). An expense or income left unnamed gets the label you most often use for that category, amount, account and hour (else the category name) and goes to Review, where it says the label was guessed. On Android the entry sheet follows the visible area, so Save stays above the keyboard (`interactive-widget=resizes-content` plus a visualViewport fallback).
+- **Version line** at the bottom of Settings (`js/version.js`): major.change.base.MMDD, edited by hand in that one file.
+- **Long receipts.** The paper is now found even when it fills only a small part of the photo (before, the table was read too and the cash handed over could be taken as the total). A tall receipt is read in overlapping parts. `¥` misread as y, Y or v, and `外8%` misread as `外89%`, are tolerated. A price that is unreadable in both readings is worked out from the subtotal when only one is missing (flagged, low confidence). For very long receipts take 2 or 3 closer photos from the top down and choose them together, or use "Add the next part" after the first photo; the lines read twice in the overlap are dropped.
+- **Daily average is now a rolling 7-day average:** spending over the last 7 consecutive calendar days (days with nothing count as 0) divided by 7, moving forward every day. (Before: month so far divided by the day of the month.) A new card on Home, "Daily average, rolling 7 days", shows the last 12 months of that figure, your typical day (median), usual range, busiest/quietest week, a rising/steady/falling trend (last 3 months against the rest), and a month-by-month list.
 
 ## What's new in v11
 
